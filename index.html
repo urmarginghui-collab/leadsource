@@ -101,6 +101,21 @@ th.sort:hover{color:var(--ink)}
 th.sort[aria-sort]::after{content:" ↓"}
 th.sort[aria-sort="ascending"]::after{content:" ↑"}
 .mono{font-family:var(--mono);font-size:13px}
+#adn td.an{white-space:normal;overflow-wrap:anywhere;min-width:240px;max-width:420px;text-align:left}
+#adn td.an button{all:unset;cursor:pointer;color:var(--accent);font-weight:600;line-height:1.35}
+#adn td.an button:hover{text-decoration:underline}
+#adn td.an button::before{content:"▸ ";color:var(--muted);font-size:11px}
+#adn tr.open td.an button::before{content:"▾ "}
+#adn td.dsl{white-space:normal;min-width:180px;max-width:300px;text-align:left;font-size:12.5px;color:var(--muted)}
+#adn tr.open td{background:var(--sunk)}
+#adn tr.det td{text-align:left;white-space:normal;background:var(--sunk);padding:4px 14px 14px 28px}
+.adnbd{display:flex;flex-direction:column;gap:8px;font-size:13.5px}
+.adnbd .row{display:flex;flex-wrap:wrap;gap:4px 14px}
+.adnbd .ttl{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.adnbd .dsrow{display:grid;grid-template-columns:minmax(0,1fr) repeat(4,56px);gap:8px;font-family:var(--mono);font-size:12.5px}
+.adnbd .dsrow span:not(:first-child){text-align:right}
+.adnbd .dsrow span:first-child{font-family:var(--sans);overflow-wrap:anywhere}
+.adnbd .leadsx div{display:flex;flex-wrap:wrap;gap:4px 12px}
 .bad{color:var(--ni);font-weight:700} .good{color:var(--su);font-weight:700}
 .empty{padding:28px 16px;text-align:center;color:var(--muted)}
 .leadtbl td{font-size:13.5px}
@@ -161,6 +176,7 @@ details.notes ul{margin:10px 0 4px;padding-left:20px;display:flex;flex-direction
       <option value="SU">Show Up</option>
     </select></label>
     <label for="f-ad">Ad <select id="f-ad"><option value="">All ads</option></select></label>
+    <label for="f-adn">Ads Name <select id="f-adn"><option value="">All Ads Names</option></select></label>
     <button type="button" class="clear" id="clear">Clear filters</button>
   </div>
 
@@ -176,12 +192,22 @@ details.notes ul{margin:10px 0 4px;padding-left:20px;display:flex;flex-direction
   </section>
 
   <section class="section">
+    <div class="sechead"><h2>Ads Name Analysis</h2><span class="hint">Click a column to sort · click an Ads Name to see its leads · % = of that Ads Name's new leads</span></div>
+    <div class="box"><table id="adn"></table></div>
+  </section>
+
+  <section class="section">
     <h2>Quick Answers</h2>
     <div class="qa" id="qa"></div>
   </section>
 
   <section class="section">
-    <div class="sechead"><h2>Drill Down: Region → Dataset → Ad → Leads</h2><span class="hint">Click a row to open it</span></div>
+    <div class="sechead"><h2 id="treeh">Drill Down: Region → Dataset → Ads Name → Leads</h2>
+      <div class="seg" id="lvlseg" role="group" aria-label="Third level">
+        <button type="button" data-l="adn" aria-pressed="true">By Ads Name</button>
+        <button type="button" data-l="ad" aria-pressed="false">By Ad ID</button>
+      </div></div>
+    <span class="hint">Click a row to open it</span>
     <div class="tree" id="tree"></div>
   </section>
 
@@ -202,7 +228,7 @@ details.notes ul{margin:10px 0 4px;padding-left:20px;display:flex;flex-direction
       <li><b>Which leads:</b> contacts created in Respond.io on the chosen date (00:00 to 23:59, Malaysia time).</li>
       <li><b>Lifecycle:</b> each lead's lifecycle stage right now (at the last sync time shown at the top). Each lead is counted once. Appointment = APPT stage.</li>
       <li><b>New Leads / Total Leads:</b> every contact created that day from that region, dataset or ad, whatever its stage. Rates are Not Interested ÷ New Leads, Appointment ÷ New Leads, Show Up ÷ New Leads.</li>
-      <li><b>Dataset:</b> the contact field <i>FB Sales Campaign</i>. <b>Ad:</b> the contact field <i>Ads ID</i>. Respond.io stores only the Ad ID, not the ad name.</li>
+      <li><b>Dataset:</b> the contact field <i>FB Sales Campaign</i>. <b>Ad:</b> the contact field <i>Ads ID</i>. <b>Ads Name:</b> the contact field <i>Ads Name</i>, shown in full. Leads with no Ads Name are counted as <i>Unclassified</i> (this field only started being filled on 13 Oct 2026, so older days are mostly Unclassified). One Ads Name can run in more than one dataset; the Ads Name Analysis adds them up and shows the split when you click it.</li>
       <li><b>Region:</b> read from the dataset name (the "$" in front is ignored): contains Penang → PENANG, Selangor → SELANGOR, Johor or JB → JB. Anything else, including leads with no FB Sales Campaign, is UNCLASSIFIED. Nothing is guessed.</li>
       <li><b>Low-quality ad:</b> at least 3 new leads and the highest Not Interested rate. <b>Quality ad:</b> at least 3 new leads and the highest (Appointment + Show Up) rate.</li>
       <li>Customer names and phone numbers are not stored here. Click <b>Open #ID</b> to see the lead in Respond.io (needs a Respond.io login).</li>
@@ -236,18 +262,20 @@ const timeMY = t => { const d = new Date((t+MYT)*1000); return d.toISOString().s
 const pct = (a,b) => b ? (a/b*100).toFixed(a/b*100 >= 10 || a===0 ? 0 : 1)+'%' : '–';
 
 let days = {};            // date -> {rows, syncedAt}
-let state = {date: todayMY(), region:'', ds:'', lc:'', ad:'', pmode:'rate', adSort:{k:'total',dir:-1}, show:100};
+let state = {date: todayMY(), region:'', ds:'', lc:'', ad:'', adn:'', pmode:'rate', adSort:{k:'total',dir:-1}, adnSort:{k:'total',dir:-1}, lvl:'adn', show:100};
+const NO_ADN = 'Unclassified';
+const adnOpen = new Set();
 
 function leadsOf(date){
   const d = days[date]; if (!d) return [];
   return d.rows.map(r => {
     const ds = (r.d||'').trim() || NO_DS;
-    return {id:r.i, name:(r.n||'').trim() || '(no name)', phone:r.p||'', t:r.t, lcRaw:r.l||'', lc: LC_MAP[r.l]||'', csc: cscName(r.c), ds, region: regionOf(r.d), ad:(r.a||'').trim() || NO_AD};
+    return {id:r.i, name:(r.n||'').trim() || '(no name)', phone:r.p||'', t:r.t, lcRaw:r.l||'', lc: LC_MAP[r.l]||'', csc: cscName(r.c), ds, region: regionOf(r.d), ad:(r.a||'').trim() || NO_AD, adn:(r.m||'').replace(/\s+/g,' ').trim() || NO_ADN};
   });
 }
 // all new leads of the day after Region/Dataset/Ad filters (lifecycle filter applied separately)
 function baseLeads(){
-  return leadsOf(state.date).filter(l => (!state.region || l.region===state.region) && (!state.ds || l.ds===state.ds) && (!state.ad || l.ad===state.ad));
+  return leadsOf(state.date).filter(l => (!state.region || l.region===state.region) && (!state.ds || l.ds===state.ds) && (!state.ad || l.ad===state.ad) && (!state.adn || l.adn===state.adn));
 }
 const inStage = l => l.lc && (!state.lc || l.lc===state.lc);
 function tally(list){
@@ -270,6 +298,8 @@ function fillFilters(){
   fill('ds', dsList, 'All datasets');
   const adList = [...new Set(all.filter(l => (!state.region || l.region===state.region) && (!state.ds || l.ds===state.ds)).map(l => l.ad))].sort();
   fill('ad', adList, 'All ads');
+  const adnList = [...new Set(all.filter(l => (!state.region || l.region===state.region) && (!state.ds || l.ds===state.ds)).map(l => l.adn))].sort((a,b)=> (a===NO_ADN)-(b===NO_ADN) || a.localeCompare(b));
+  fill('adn', adnList, 'All Ads Names');
   $('#f-lc').value = state.lc;
   $('#f-date').value = state.date;
 }
@@ -342,10 +372,10 @@ function renderTree(base){
     let dsH = '';
     [...groupBy(rl,'ds').entries()].sort((a,b)=> tally(b[1]).total - tally(a[1]).total).forEach(([ds, dl]) => {
       let adH = '';
-      [...groupBy(dl,'ad').entries()].sort((a,b)=> b[1].length - a[1].length).forEach(([ad, al]) => {
+      [...groupBy(dl,state.lvl).entries()].sort((a,b)=> b[1].length - a[1].length).forEach(([ad, al]) => {
         const shown = al.filter(inStage);
-        const inner = '<div class="leadlist">'+(shown.length ? shown.map(l => '<div>'+link(l)+pill(l)+'<span>'+esc(l.csc)+'</span></div>').join('') : '<div class="hint">No lead from this ad is at '+(state.lc?'this stage':'Not Interested / Appointment / Show Up')+' yet ('+al.length+' new).</div>')+'</div>';
-        adH += det(r+'|'+ds+'|'+ad, 'lvl3', '<span class="t mono">'+esc(ad)+'</span>', tally(al), inner);
+        const inner = '<div class="leadlist">'+(shown.length ? shown.map(l => '<div>'+link(l)+pill(l)+'<span>'+esc(l.csc)+'</span></div>').join('') : '<div class="hint">No lead from this one is at '+(state.lc?'this stage':'Not Interested / Appointment / Show Up')+' yet ('+al.length+' new).</div>')+'</div>';
+        adH += det(r+'|'+ds+'|'+state.lvl+'|'+ad, 'lvl3', '<span class="t'+(state.lvl==='ad'?' mono':'')+'" title="'+esc(ad)+'">'+esc(ad)+'</span>', tally(al), inner);
       });
       dsH += det(r+'|'+ds, 'lvl2', '<span class="t">'+esc(ds)+'</span>', tally(dl), adH);
     });
@@ -372,13 +402,53 @@ function renderAds(base){
   });
 }
 
+function renderAdn(base){
+  const stages = STAGES.filter(s => !state.lc || s[0]===state.lc);
+  const rows = [...groupBy(base,'adn').entries()].map(([adn, list]) => {
+    const t = tally(list);
+    const dsl = [...groupBy(list,'ds').entries()].sort((a,b)=> b[1].length-a[1].length);
+    return {adn, list, dsl, ...t, NIr: t.total?t.NI/t.total:0, APPTr: t.total?t.APPT/t.total:0, SUr: t.total?t.SU/t.total:0};
+  });
+  const k = state.adnSort.k, dir = state.adnSort.dir;
+  rows.sort((a,b) => (a.adn===NO_ADN)-(b.adn===NO_ADN) || (k==='adn' ? a.adn.localeCompare(b.adn) : a[k]-b[k])*dir || b.total-a.total || a.adn.localeCompare(b.adn));
+  const th = (c,l,cls) => '<th class="sort'+(cls?' '+cls:'')+'" data-k="'+c+'"'+(c===k?' aria-sort="'+(dir>0?'ascending':'descending')+'"':'')+'>'+l+'</th>';
+  let h = '<thead><tr>'+th('adn','Ads Name')+'<th style="text-align:left">Dataset (FB Sales Campaign)</th>'+th('total','New Leads')+
+    stages.map(s => th(s[0]+'r', s[1]+' %', s[2])).join('')+'</tr></thead><tbody>';
+  const flag = (r, s) => r.total>=3 && r.adn!==NO_ADN ? (s==='NI' && r.NIr>=0.5 ? ' bad' : (s!=='NI' && r[s+'r']>=0.2 ? ' good' : '')) : '';
+  rows.forEach(r => {
+    const open = adnOpen.has(r.adn);
+    const dsTxt = r.dsl.length===1 ? esc(r.dsl[0][0]) : esc(r.dsl[0][0])+' <b>+'+(r.dsl.length-1)+' more</b>';
+    h += '<tr'+(open?' class="open"':'')+'><td class="an"><button type="button" data-adn="'+esc(r.adn)+'" aria-expanded="'+open+'">'+esc(r.adn)+'</button></td><td class="dsl">'+dsTxt+'</td>'+
+      '<td><span class="num">'+r.total+'</span></td>'+
+      stages.map(s => '<td><span class="num '+s[2]+'">'+r[s[0]]+'</span><span class="pct'+flag(r,s[0])+'">'+pct(r[s[0]], r.total)+'</span></td>').join('')+'</tr>';
+    if (open){
+      const shown = r.list.filter(inStage).sort((a,b)=> (a.lc>b.lc?1:a.lc<b.lc?-1:0) || a.t-b.t);
+      const other = r.total - tally(r.list).NI - tally(r.list).APPT - tally(r.list).SU;
+      h += '<tr class="det"><td colspan="'+(3+stages.length)+'"><div class="adnbd">'+
+        '<div class="ttl">By dataset · New / NI / Appt / Show</div>'+
+        r.dsl.map(([ds, dl]) => { const t = tally(dl); return '<div class="dsrow"><span><span class="dot '+regionOf(ds===NO_DS?'':ds)+'" style="display:inline-block;margin-right:6px"></span>'+esc(ds)+'</span><span>'+t.total+'</span><span class="c-ni">'+t.NI+'</span><span class="c-ap">'+t.APPT+'</span><span class="c-su">'+t.SU+'</span></div>'; }).join('')+
+        '<div class="ttl">Leads at '+(state.lc?'this stage':'Not Interested / Appointment / Show Up')+' · '+other+' other new lead'+(other===1?'':'s')+' still in other stages</div>'+
+        '<div class="leadsx">'+(shown.length ? shown.map(l => '<div>'+link(l)+pill(l)+'<span>'+esc(l.csc)+'</span><span class="hint">'+timeMY(l.t)+'</span></div>').join('') : '<div class="hint">None yet.</div>')+'</div>'+
+        '<div><button type="button" data-only="'+esc(r.adn)+'">Filter whole dashboard to this Ads Name</button></div>'+
+        '</div></td></tr>';
+    }
+  });
+  if (!rows.length) h += '<tr><td colspan="'+(3+stages.length)+'" class="empty">'+emptyMsg()+'</td></tr>';
+  const tbl = $('#adn'); tbl.innerHTML = h + '</tbody>';
+  tbl.querySelectorAll('th.sort').forEach(th => th.onclick = () => {
+    const c = th.dataset.k; state.adnSort = {k:c, dir: state.adnSort.k===c ? -state.adnSort.dir : (c==='adn'?1:-1)}; renderAdn(baseLeads());
+  });
+  tbl.querySelectorAll('button[data-adn]').forEach(b => b.onclick = () => { const a = b.dataset.adn; adnOpen.has(a) ? adnOpen.delete(a) : adnOpen.add(a); renderAdn(baseLeads()); });
+  tbl.querySelectorAll('button[data-only]').forEach(b => b.onclick = () => { state.adn = b.dataset.only; state.show = 100; render(); });
+}
+
 function renderLeads(base){
   const list = base.filter(inStage).sort((a,b) => (a.lc>b.lc?1:a.lc<b.lc?-1:0) || a.t-b.t);
   $('#leadcount').textContent = list.length+' lead'+(list.length===1?'':'s')+(state.lc?'':' at Not Interested / Appointment / Show Up');
   const show = list.slice(0, state.show);
-  let h = '<thead><tr><th>Date</th><th>Respond.io</th><th>Lifecycle</th><th>Region</th><th>Dataset</th><th>Ad ID</th><th>Assigned CSC</th></tr></thead><tbody>';
-  h += show.map(l => '<tr><td class="mono">'+pretty(state.date)+' '+timeMY(l.t)+'</td><td>'+link(l)+'</td><td>'+pill(l)+'</td><td><span class="reg"><span class="dot '+l.region+'"></span>'+l.region+'</span></td><td class="ds">'+esc(l.ds)+'</td><td class="mono">'+esc(l.ad)+'</td><td>'+esc(l.csc)+'</td></tr>').join('');
-  if (!list.length) h += '<tr><td colspan="7" class="empty">'+emptyMsg()+'</td></tr>';
+  let h = '<thead><tr><th>Date</th><th>Respond.io</th><th>Lifecycle</th><th>Region</th><th>Dataset</th><th>Ad ID</th><th>Ads Name</th><th>Assigned CSC</th></tr></thead><tbody>';
+  h += show.map(l => '<tr><td class="mono">'+pretty(state.date)+' '+timeMY(l.t)+'</td><td>'+link(l)+'</td><td>'+pill(l)+'</td><td><span class="reg"><span class="dot '+l.region+'"></span>'+l.region+'</span></td><td class="ds">'+esc(l.ds)+'</td><td class="mono">'+esc(l.ad)+'</td><td class="ds">'+esc(l.adn)+'</td><td>'+esc(l.csc)+'</td></tr>').join('');
+  if (!list.length) h += '<tr><td colspan="8" class="empty">'+emptyMsg()+'</td></tr>';
   $('#leads').innerHTML = h + '</tbody>';
   $('#more').innerHTML = list.length > state.show ? '<span>Showing '+state.show+' of '+list.length+'</span><button type="button" id="showmore">Show all</button>' : '';
   const b = $('#showmore'); if (b) b.onclick = () => { state.show = 1e9; renderLeads(baseLeads()); };
@@ -394,7 +464,7 @@ let loaded = false;
 function render(){
   fillFilters();
   const base = baseLeads();
-  renderSummary(base); renderQA(base); renderTree(base); renderAds(base); renderLeads(base);
+  renderSummary(base); renderAdn(base); renderQA(base); renderTree(base); renderAds(base); renderLeads(base);
   const d = days[state.date];
   const syncs = Object.values(days).map(x => x.syncedAt||0);
   const last = syncs.length ? Math.max(...syncs) : 0;
@@ -406,15 +476,23 @@ $('#f-date').addEventListener('change', e => { if (e.target.value) { state.date 
 $('#prev').onclick = () => { state.date = addDays(state.date,-1); state.show = 100; render(); };
 $('#next').onclick = () => { state.date = addDays(state.date,1); state.show = 100; render(); };
 $('#today').onclick = () => { state.date = todayMY(); state.show = 100; render(); };
-$('#f-region').addEventListener('change', e => { state.region = e.target.value; state.ds=''; state.ad=''; render(); });
-$('#f-ds').addEventListener('change', e => { state.ds = e.target.value; state.ad=''; render(); });
+$('#f-region').addEventListener('change', e => { state.region = e.target.value; state.ds=''; state.ad=''; state.adn=''; render(); });
+$('#f-ds').addEventListener('change', e => { state.ds = e.target.value; state.ad=''; state.adn=''; render(); });
 $('#f-ad').addEventListener('change', e => { state.ad = e.target.value; render(); });
+$('#f-adn').addEventListener('change', e => { state.adn = e.target.value; state.show = 100; render(); });
+$('#lvlseg').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.lvl = b.dataset.l;
+  $('#lvlseg').querySelectorAll('button').forEach(x => x.setAttribute('aria-pressed', String(x===b)));
+  $('#treeh').textContent = 'Drill Down: Region → Dataset → '+(state.lvl==='adn'?'Ads Name':'Ad')+' → Leads';
+  render();
+});
 $('#f-lc').addEventListener('change', e => { state.lc = e.target.value; render(); });
-$('#clear').onclick = () => { Object.assign(state, {region:'', ds:'', lc:'', ad:'', show:100}); render(); };
-document.querySelector('.seg').addEventListener('click', e => {
+$('#clear').onclick = () => { Object.assign(state, {region:'', ds:'', lc:'', ad:'', adn:'', show:100}); render(); };
+document.querySelector('.sechead .seg').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   state.pmode = b.dataset.p;
-  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', String(x===b)));
+  document.querySelectorAll('.sechead .seg:not(#lvlseg) button').forEach(x => x.setAttribute('aria-pressed', String(x===b)));
   render();
 });
 $('#tree').addEventListener('toggle', e => { const d = e.target; if (d.tagName!=='DETAILS') return; d.open ? openSet.add(d.dataset.k) : openSet.delete(d.dataset.k); }, true);
